@@ -1,21 +1,21 @@
 import csv
-from traceback import print_stack
-
 import psycopg
-import os
 import io
-from dotenv import load_dotenv
 import zipfile
+import yaml
 
-load_dotenv("sample.env")
-
-# Connection parameters
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 def add_indicators_and_clean(row):
+    """
+    After all the records for a play and runner are processed, calculate the fields is_firstrothird,
+    is_secondtohome and is_risp using the startbase, reachedbase, is_out and eventType
+    and add them to the row.  Then remove fields not needed in the final table.
+    """
     row['is_firsttothird'] = (row['startbase'] == '1B' and row['reachedbase'] == '3B' and row['is_out'] == False and row['eventType'] != 'home_run')
     row['is_secondtohome'] = (row['startbase'] == '2B' and row['reachedbase'] == 'HM' and row['is_out'] == False and row['eventType'] != 'home_run')
     row['is_risp'] = (row['startbase'] in ['2B', '3B'])
+    if row['playId'] == "":
+        row["playId"] = None
 
     for k in ('originBase', 'outNumber', 'start','end','event','isOut','outBase','isScoringEvent',
               'rbi','earned','teamUnearned','responsiblepitcherid'):
@@ -23,11 +23,11 @@ def add_indicators_and_clean(row):
 
 
 
-def load_csv_to_neon(zip_path, table_name, file_name):
-    """Read CSV file and load data into PostgreSQL table"""
-    print(DATABASE_URL)
-    # Connect to Neon database
-    conn = psycopg.connect(DATABASE_URL)
+def load_runner_csvs_to_postgres(zip_path, table_name, file_name, yaml_name):
+    """Read CSV files and load data into PostgreSQL table"""
+    with open(yaml_name) as f:
+        config = yaml.safe_load(f)
+    conn = psycopg.connect(config["database_uri"])
     try:
         with conn.cursor() as cur:
 
@@ -40,9 +40,8 @@ def load_csv_to_neon(zip_path, table_name, file_name):
                         # Open the file
                         with zipf.open(file_info) as f:
                             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
-                            headers = reader.fieldnames  # Get column names from first row
 
-                            # Read rows
+                            # Keep track of the game, at bat, play and runner currently being processed
                             current_gamepk = None
                             current_atbatindex = None
                             current_playindex = None
@@ -51,6 +50,7 @@ def load_csv_to_neon(zip_path, table_name, file_name):
                             rows_to_insert = []
 
                             for row in reader:
+                                #If the runner is a new runner, then finalize the previous runner's row and reset the current row
                                 if current_gamepk is None or row['gamePk'] != current_gamepk or row['atBatIndex'] != current_atbatindex \
                                     or row['playIndex'] != current_playindex or row['runnerid'] != current_runnerid:
                                     if previous_row is not None:
@@ -60,6 +60,8 @@ def load_csv_to_neon(zip_path, table_name, file_name):
                                     current_atbatindex = row['atBatIndex']
                                     current_playindex = row['playIndex']
                                     current_runnerid = row['runnerid']
+                                    #Set the startbase and endbase values based on the originBase,
+                                    # and outBase or reachedBase depending on if the runner is out
                                     row['is_out'] = (row['isOut'] == "True")
                                     if row['originBase'] != '':
                                         row['startbase'] = row['originBase']
@@ -76,7 +78,9 @@ def load_csv_to_neon(zip_path, table_name, file_name):
                                         else:
                                             row['endbase'] = row['end']
                                             row['reachedbase'] = row['end']
-
+                                #If this row is an additional record for the same play and runner, then
+                                #update the endbase and reachedbase to be the farthest one
+                                #Use the earliest eventtype, and the latest movementreason
                                 else:
                                     current_out = (row['isOut'] == 'True')
                                     row['startbase'] = previous_row['startbase']
@@ -108,31 +112,27 @@ def load_csv_to_neon(zip_path, table_name, file_name):
 
                                 previous_row = row
 
-                            # ---- bulk insert happens here ----
+                            #Add the last row to the list
                             if previous_row:
                                 add_indicators_and_clean(previous_row)
                                 rows_to_insert.append(previous_row)
+                            # Insert all the rows from the file
                             if rows_to_insert:
                                 columns = list(rows_to_insert[0].keys())
                                 insert_column_names = ", ".join(columns)
                                 placeholders = ", ".join(f"%({col})s" for col in columns)
-
                                 insert_query = f"""
                                     INSERT INTO {table_name} ({insert_column_names})
                                     VALUES ({placeholders})
                                     ON CONFLICT  (gamepk, atbatindex, playindex, runnerid) DO NOTHING;
                                 """
-
                                 cur.executemany(insert_query, rows_to_insert)
-
                             conn.commit()
                             print(f"Successfully loaded {f.name} into {table_name}")
 
     except Exception as e:
         print(f"Error in {f.name}: {e}")
-        print_stack()
-        print(e)
         conn.rollback()
 
 if __name__ == "__main__":
-    load_csv_to_neon("MLB_Data_2025.zip", "runner_play", "runners.csv")
+    load_runner_csvs_to_postgres("../MLB_Data_2025.zip", "runner_play", "runners.csv", "config.yaml")

@@ -1,49 +1,45 @@
-import csv
+import yaml
 import psycopg
-import os
 import io
-from dotenv import load_dotenv
 import zipfile
 
-load_dotenv("sample.env")
 
-# Connection parameters
-DATABASE_URL = os.getenv("DATABASE_URL")
 
-def load_csv_to_neon(zip_path, table_name):
-    """Read CSV file and load data into PostgreSQL table"""
-    print(DATABASE_URL)
+def load_games_csvs_to_postgres(zip_path, file_name, table_name, yaml_name):
+    """Read CSV files from a zip and load data into PostgreSQL table
+    The records are first loaded to a temp table so that empty strings can be converted to NULL
+    before doing an insert to the main table ensuring the latest date's record of a game is kept"""
     # Connect to Neon database
-    conn = psycopg.connect(DATABASE_URL)
+    with open(yaml_name) as f:
+        config = yaml.safe_load(f)
+    conn = psycopg.connect(config["database_uri"])
     try:
         with conn.cursor() as cur:
-
             # Read CSV file
             with zipfile.ZipFile(zip_path, 'r') as zipf:
                 # Loop over all files in the zip
                 for file_info in zipf.infolist():
                     # Check if the file is named games.csv (regardless of folder)
-                    if file_info.filename.endswith("games.csv"):
+                    if file_info.filename.endswith(file_name):
                         # Open the file
                         with zipf.open(file_info) as f:
                             # Wrap binary stream in TextIOWrapper so COPY can read it as text
                             text_stream = io.TextIOWrapper(f, encoding="utf-8")
-
+                            #Create a temp table
                             create_temp_sql = f"""
                             CREATE TEMP TABLE IF NOT EXISTS tmp_games (LIKE {table_name} INCLUDING DEFAULTS);
                             """
-
                             cur.execute(create_temp_sql)
 
+                            #Use psycopg's copy to copy directly into the temp table
                             copy_sql = """
                                        COPY tmp_games FROM STDIN WITH CSV HEADER NULL ''; \
                                        """
-
                             with cur.copy(copy_sql) as copy:
                                 text_stream.seek(0)
-                                while data := text_stream.read(8192):
-                                    copy.write(data)
+                                copy.write(text_stream.read())
 
+                            #Insert the records from the temp table into the main table keeping only the data from the latest date on conflict
                             insert_sql = f"""
                                 INSERT INTO {table_name}
                                 SELECT *
@@ -70,26 +66,12 @@ def load_csv_to_neon(zip_path, table_name):
                             cur.execute(insert_sql)
                             cur.execute("TRUNCATE TABLE tmp_games;")
                             conn.commit()
-                            # reader = csv.reader(io.TextIOWrapper(f, encoding='utf-8'))
-                            # headers = next(reader)  # Get column names from first row
-                            #
-                            # # Prepare insert query
-                            # column_names = ', '.join(headers)
-                            # placeholders = ', '.join(['%s'] * len(headers))
-                            # insert_query = f"INSERT INTO {table_name} ({column_names}) VALUES ({placeholders})"
-                            #
-                            # # Collect all rows
-                            # rows = list(reader)
-                            #
-                            # # Execute batch insert
-                            # cur.executemany(insert_query, rows)
-
-                            conn.commit()
                             print(f"Successfully loaded {f.name} into {table_name}")
+
 
     except Exception as e:
         print(f"Error in {f.name}: {e}")
-        #conn.rollback()
+        conn.rollback()
 
 if __name__ == "__main__":
-    load_csv_to_neon("MLB_Data_2025.zip", "game")
+    load_games_csvs_to_postgres("../MLB_Data_2025.zip", "games.csv", "game", "config.yaml")

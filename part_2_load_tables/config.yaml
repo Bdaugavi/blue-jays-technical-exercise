@@ -1,0 +1,1 @@
+database_uri: "postgresql://neondb_owner:npg_QWscb2YDu4wr@ep-empty-union-ai9cgw2p-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" #Set the database URI here
