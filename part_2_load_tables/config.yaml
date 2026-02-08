@@ -1,1 +1,1 @@
-database_uri: "postgresql://user:password #Set the database URI here
+database_uri: "postgresql://user:password" #Set the database URI here
