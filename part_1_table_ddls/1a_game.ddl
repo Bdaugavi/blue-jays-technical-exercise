@@ -17,4 +17,3 @@ CREATE TABLE "game" (
     "scheduledinnings" integer,
     CONSTRAINT "game_primary_key" PRIMARY KEY ("gamepk")
 );
-
