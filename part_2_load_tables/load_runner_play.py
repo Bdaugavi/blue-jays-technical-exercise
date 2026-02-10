@@ -10,9 +10,10 @@ def add_indicators_and_clean(row):
     After all the records for a play and runner are processed, calculate the fields is_firstrothird,
     is_secondtohome and is_risp using the startbase, reachedbase, is_out and eventType
     and add them to the row.  Then remove fields not needed in the final table.
+    is_firsttothird and is_secondtohome were designated as True regardless of whether the runner was safe or out
     """
-    row['is_firsttothird'] = (row['startbase'] == '1B' and row['reachedbase'] == '3B' and row['is_out'] == False and row['eventType'] != 'home_run')
-    row['is_secondtohome'] = (row['startbase'] == '2B' and row['reachedbase'] == 'HM' and row['is_out'] == False and row['eventType'] != 'home_run')
+    row['is_firsttothird'] = (row['startbase'] == '1B' and row['endbase'] == '3B' and row['eventType'] != 'home_run')
+    row['is_secondtohome'] = (row['startbase'] == '2B' and row['endbase'] == 'HM' and row['eventType'] != 'home_run')
     row['is_risp'] = (row['startbase'] in ['2B', '3B'])
     if row['playId'] == "":
         row["playId"] = None
@@ -52,7 +53,7 @@ def load_runner_csvs_to_postgres(zip_path, table_name, file_name, yaml_name):
                             for row in reader:
                                 #If the runner is a new runner, then finalize the previous runner's row and reset the current row
                                 if current_gamepk is None or row['gamePk'] != current_gamepk or row['atBatIndex'] != current_atbatindex \
-                                    or row['playIndex'] != current_playindex or row['runnerid'] != current_runnerid:
+                                        or row['playIndex'] != current_playindex or row['runnerid'] != current_runnerid:
                                     if previous_row is not None:
                                         add_indicators_and_clean(previous_row)
                                         rows_to_insert.append(previous_row)
@@ -69,7 +70,10 @@ def load_runner_csvs_to_postgres(zip_path, table_name, file_name, yaml_name):
                                         row['startbase'] = 'B'
 
                                     if row['is_out']:
-                                        row['endbase'] = row['outBase']
+                                        if row['outBase'] == '4B':
+                                            row['endbase'] = 'HM'
+                                        else:
+                                            row['endbase'] = row['outBase']
                                         row['reachedbase'] = None
                                     else:
                                         if row['end'] == 'score':
@@ -108,7 +112,7 @@ def load_runner_csvs_to_postgres(zip_path, table_name, file_name, yaml_name):
 
                                     if previous_row['start'] < row['start']:
                                         row['eventType'] = previous_row['eventType'] #Keep the earliest eventType
-                                    row ['is_out'] = row['isOut'] or previous_row ['is_out']
+                                    row ['is_out'] = (row['isOut'] == 'True') or previous_row ['is_out']
 
                                 previous_row = row
 
@@ -131,7 +135,7 @@ def load_runner_csvs_to_postgres(zip_path, table_name, file_name, yaml_name):
                             print(f"Successfully loaded {f.name} into {table_name}")
 
     except Exception as e:
-        print(f"Error in {f.name}: {e}")
+        print(f"Error loading {f.name}: {e}")
         conn.rollback()
 
 if __name__ == "__main__":

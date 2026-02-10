@@ -70,7 +70,7 @@ def load_games_csvs_to_postgres(zip_path, file_name, table_name, yaml_name):
 
 
     except Exception as e:
-        print(f"Error in {f.name}: {e}")
+        print(f"Error loading {f.name}: {e}")
         conn.rollback()
 
 if __name__ == "__main__":

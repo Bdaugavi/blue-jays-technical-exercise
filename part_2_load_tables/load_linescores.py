@@ -86,8 +86,8 @@ def load_linescore_csvs_to_postgres(zip_path, table_name, file_name, yaml_name):
                             print(f"Successfully loaded {f.name} into {table_name}")
 
     except Exception as e:
-            print(f"Error in {f.name}: {e}")
-            conn.rollback()
+        print(f"Error loading {f.name}: {e}")
+        conn.rollback()
 
 if __name__ == "__main__":
     load_linescore_csvs_to_postgres("../MLB_Data_2025.zip", "linescore", "linescores.csv", "config.yaml")

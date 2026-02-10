@@ -12,6 +12,9 @@ To run the code:
 1. Open `config.yaml`
 2. Update the `database_uri` value to point to the database you want to use
 
+For the runner_play table, is_firsttothird and is_secondtohome were designated as True regardless of whether the runner was safe or out.
+reachedbase was assigned NULL if there was no data record of the runner advancing to a base safely on the play.
+
 ### Part 3: Queries
 The queries for **Part 3** are located in the  
 `part_3_queries` directory.
