@@ -1,4 +1,5 @@
 --Assuming all game types
+--Most aggressive runners
 SELECT runnerid, runnerfullname, COUNT(*) AS num_aggresive_actions
 FROM runner_play
 WHERE
